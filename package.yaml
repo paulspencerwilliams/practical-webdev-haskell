@@ -22,10 +22,16 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - classy-prelude
+- time
+- time-lens
+- pcre-heavy
+- aeson
 
 default-extensions:
 - NoImplicitPrelude
 - OverloadedStrings
+- QuasiQuotes
+- TemplateHaskell
 
 library:
   source-dirs: src
