@@ -26,6 +26,7 @@ dependencies:
 - time-lens
 - pcre-heavy
 - aeson
+- mtl
 
 default-extensions:
 - NoImplicitPrelude
