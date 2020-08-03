@@ -27,12 +27,16 @@ dependencies:
 - pcre-heavy
 - aeson
 - mtl
+- data-has
+- string-random
 
 default-extensions:
 - NoImplicitPrelude
 - OverloadedStrings
 - QuasiQuotes
 - TemplateHaskell
+- ConstraintKinds
+- FlexibleContexts
 
 library:
   source-dirs: src
