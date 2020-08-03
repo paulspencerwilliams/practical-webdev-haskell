@@ -3,11 +3,12 @@ module Domain.Auth
   )
 where
 
+import           Control.Monad.Except
 import           ClassyPrelude
 import           Text.Regex.PCRE.Heavy
 import           Domain.Validation
 
-newtype Email = Email { emailRaw :: Text } deriving (Show, Eq)
+newtype Email = Email { emailRaw :: Text } deriving (Show, Eq, Ord)
 
 rawEmail :: Email -> Text
 rawEmail = emailRaw
@@ -32,10 +33,35 @@ mkPassword = validate Password
   ]
 
 data Auth = Auth
-    { authEmail :: Text
-    , authPassword :: Text
+    { authEmail :: Email
+    , authPassword :: Password
     } deriving (Show, Eq)
 
 data RegistrationError
     = RegistrationErrorEmailTaken
     deriving (Show, Eq)
+
+
+type VerificationCode = Text
+
+class Monad m => AuthRepo m where
+  addAuth :: Auth -> m (Either RegistrationError VerificationCode)
+
+class (Monad m) => EmailVerificationNotif m where
+  notifyEmailVerification :: Email -> VerificationCode -> m ()
+
+register :: (AuthRepo m, EmailVerificationNotif m)
+         => Auth -> m (Either RegistrationError ())
+register auth = runExceptT $ do
+  vCode <- ExceptT $ addAuth auth
+  let email = authEmail auth
+  lift $ notifyEmailVerification email vCode
+
+instance AuthRepo IO where
+   addAuth (Auth email pass) = do
+    putStrLn $ "adding auth: " <> rawEmail email 
+    return $ Right "fake verification code"
+
+instance EmailVerificationNotif IO where
+  notifyEmailVerification email vcode = 
+    putStrLn $ "Notify " <> rawEmail email <> " - " <> vcode
