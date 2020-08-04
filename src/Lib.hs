@@ -6,11 +6,12 @@ where
 import           ClassyPrelude
 import qualified Adapter.InMemory.Auth         as M
 import           Domain.Auth
+import           Control.Monad                  ( MonadFail )
 
 type State = TVar M.State
 newtype App a = App
   { unApp :: ReaderT State IO a
-  } deriving (Applicative, Functor, Monad, MonadReader State, MonadIO)
+  } deriving (Applicative, Functor, Monad, MonadReader State, MonadIO, MonadFail)
 
 run :: State -> App a -> IO a
 run state = flip runReaderT state . unApp
