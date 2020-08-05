@@ -1,6 +1,6 @@
 version: "3.7"
 services:
-  db:
+  postgres:
     image: postgres
     restart: always
     ports:
@@ -9,3 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: hauth
+  redis:
+    image: redis
+    ports:
+    - 6379:6379
