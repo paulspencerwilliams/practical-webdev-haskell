@@ -9,9 +9,10 @@ import           Domain.Auth
 import           Control.Monad                  ( MonadFail )
 import           Katip
 import qualified Adapter.PostgreSQL.Auth  as PG
+import qualified Adapter.Redis.Auth as Redis
 import Control.Exception.Safe (MonadThrow)
 
-type State = (PG.State, TVar M.State)
+type State = (PG.State, Redis.State, TVar M.State)
 newtype App a = App
   { unApp :: ReaderT State (KatipContextT IO) a
   } deriving (Applicative, Functor, Monad, MonadReader State, MonadIO, MonadFail, KatipContext, Katip, MonadThrow)
@@ -55,14 +56,15 @@ instance EmailVerificationNotif App where
   notifyEmailVerification = M.notifyEmailVerification
 
 instance SessionRepo App where
-  newSession            = M.newSession
-  findUserIdBySessionId = M.findUserIdBySessionId
+  newSession            = Redis.newSession
+  findUserIdBySessionId = Redis.findUserIdBySessionId
 
 someFunc :: IO ()
 someFunc = withKatip $ \le -> do
   mState <- newTVarIO M.initialState
   PG.withState pgCfg $ \pgState ->
-      run le (pgState, mState) action
+      Redis.withState redisCfg $ \ redisState ->
+      run le (pgState, redisState, mState) action
   where
     redisCfg = "redis://localhost:6379/0"
     pgCfg = PG.Config 
