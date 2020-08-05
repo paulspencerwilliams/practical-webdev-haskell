@@ -11,13 +11,18 @@ import qualified Adapter.Redis.Auth as Redis
 import Domain.Auth
 import Katip
 import Text.StringRandom
+import Control.Exception.Safe (MonadCatch, MonadThrow)
+import Control.Monad (MonadFail)
 
 type State = (PG.State, Redis.State, MQ.State, TVar M.State)
 
 newtype App a = App
   { unApp :: ReaderT State (KatipContextT IO) a
   } deriving ( Applicative, Functor, Monad, MonadReader State, MonadIO
-             , KatipContext, Katip, MonadThrow, MonadCatch)
+             , KatipContext, Katip, MonadThrow, MonadCatch, MonadFail)
+
+instance MonadUnliftIO App where
+  withRunInIO f = App $ withRunInIO (\g -> f $ g . unApp)
 
 run :: LogEnv -> State -> App a -> IO a
 run le state 
@@ -44,7 +49,7 @@ withKatip app =
   where
     createLogEnv = do
       logEnv <- initLogEnv "HAuth" "prod"
-      stdoutScribe <- mkHandleScribe ColorIfTerminal stdout InfoS V2
+      stdoutScribe <- mkHandleScribe ColorIfTerminal stdout (permitItem InfoS) V2
       registerScribe "stdout" stdoutScribe defaultScribeSettings logEnv
 
 withState :: (LogEnv -> State -> IO ()) -> IO ()
@@ -61,7 +66,7 @@ withState action =
     redisCfg = "redis://localhost:6379/0"
     pgCfg = 
       PG.Config 
-      { PG.configUrl = "postgresql://localhost/hauth"
+      { PG.configUrl = "postgresql://postgres:postgres@localhost/hauth"
       , PG.configStripeCount = 2
       , PG.configMaxOpenConnPerStripe = 5
       , PG.configIdleConnTimeout = 10

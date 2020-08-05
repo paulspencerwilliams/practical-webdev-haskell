@@ -5,6 +5,8 @@ import Network.AMQP
 import Data.Has
 import Katip
 import Data.Aeson
+import Control.Exception.Safe (MonadCatch)
+import Control.Concurrent (forkIO)
 
 data State = State
   { statePublisherChan :: Channel
@@ -49,7 +51,7 @@ initExchange (State pubChan _) exchangeName = do
 
 initConsumer :: State -> Text -> (Message -> IO Bool) -> IO ()
 initConsumer (State _ conChan) queueName handler =
-  void . consumeMsgs conChan queueName Ack $ \(msg, env) -> void . fork $ do
+  void . consumeMsgs conChan queueName Ack $ \(msg, env) -> void . forkIO $ do
     result <- handler msg
     if result then ackEnv env else rejectEnv env False
 
@@ -61,7 +63,7 @@ publish exchange routingKey payload = do
   let msg = newMsg { msgBody = encode payload }
   liftIO . void $ publishMsg chan exchange routingKey msg
 
-consumeAndProcess :: (KatipContext m, FromJSON a, MonadCatch m)
+consumeAndProcess :: (KatipContext m, FromJSON a, MonadCatch m, MonadUnliftIO m)
                   => Message -> (a -> m Bool) -> m Bool
 consumeAndProcess msg handler =
   case eitherDecode' (msgBody msg) of

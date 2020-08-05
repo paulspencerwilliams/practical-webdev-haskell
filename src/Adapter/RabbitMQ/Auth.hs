@@ -8,19 +8,20 @@ import Katip
 import Data.Aeson
 import Data.Aeson.TH
 import qualified Domain.Auth as D
+import Control.Exception.Safe (MonadCatch)
 
 data EmailVerificationPayload = EmailVerificationPayload
   { emailVerificationPayloadEmail :: Text
   , emailVerificationPayloadVerificationCode :: Text
   }
 
-init  :: (M.InMemory r m, KatipContext m, MonadCatch m)
+init  :: (M.InMemory r m, KatipContext m, MonadCatch m, MonadUnliftIO m)
       => State -> (m Bool -> IO Bool) -> IO ()
 init state runner = do
   initQueue state "verifyEmail" "auth" "userRegistered"
   initConsumer state "verifyEmail" (consumeEmailVerification runner)
 
-consumeEmailVerification  :: (M.InMemory r m, KatipContext m, MonadCatch m)
+consumeEmailVerification  :: (M.InMemory r m, KatipContext m, MonadCatch m, MonadUnliftIO m)
                           => (m Bool -> IO Bool) -> Message -> IO Bool
 consumeEmailVerification runner msg =
   runner $ consumeAndProcess msg handler
