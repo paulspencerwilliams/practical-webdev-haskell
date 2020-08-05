@@ -1,7 +1,7 @@
 module Main where
 
-import Lib
 import ClassyPrelude
+import qualified Lib as Lib
 
 main :: IO ()
-main = someFunc
+main = Lib.main

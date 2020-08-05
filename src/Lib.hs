@@ -1,88 +1,95 @@
 module Lib
-  ( someFunc
-  )
-where
+  ( main
+  ) where
 
-import           ClassyPrelude
-import qualified Adapter.InMemory.Auth         as M
-import           Domain.Auth
-import           Control.Monad                  ( MonadFail )
-import           Katip
-import qualified Adapter.PostgreSQL.Auth  as PG
+import ClassyPrelude
+import qualified Adapter.RabbitMQ.Common as MQ
+import qualified Adapter.RabbitMQ.Auth as MQAuth
+import qualified Adapter.InMemory.Auth as M
+import qualified Adapter.PostgreSQL.Auth as PG
 import qualified Adapter.Redis.Auth as Redis
-import Control.Exception.Safe (MonadThrow)
+import Domain.Auth
+import Katip
+import Text.StringRandom
 
-type State = (PG.State, Redis.State, TVar M.State)
+type State = (PG.State, Redis.State, MQ.State, TVar M.State)
+
 newtype App a = App
   { unApp :: ReaderT State (KatipContextT IO) a
-  } deriving (Applicative, Functor, Monad, MonadReader State, MonadIO, MonadFail, KatipContext, Katip, MonadThrow)
+  } deriving ( Applicative, Functor, Monad, MonadReader State, MonadIO
+             , KatipContext, Katip, MonadThrow, MonadCatch)
 
 run :: LogEnv -> State -> App a -> IO a
-run le state
+run le state 
   = runKatipContextT le () mempty
   . flip runReaderT state 
   . unApp
 
-
-withKatip :: (LogEnv -> IO a) -> IO a
-withKatip app = bracket createLogEnv closeScribes app
- where
-  createLogEnv = do
-    logEnv       <- initLogEnv "HAuth" "prod"
-    stdoutScribe <- mkHandleScribe ColorIfTerminal stdout (permitItem InfoS) V2
-    registerScribe "stdout" stdoutScribe defaultScribeSettings logEnv
-
-logSomething :: (KatipContext m) => m ()
-logSomething = do
-  $(logTM) InfoS "Log in no namespace" 
-  katipAddNamespace "ns1" $
-    $(logTM) InfoS "Log in ns1" 
-  katipAddNamespace "ns2" $ do
-    $(logTM) WarningS "Log in ns2" 
-    katipAddNamespace "ns3" $
-      katipAddContext (sl "userId" $ asText "12") $ do
-        $(logTM) InfoS "Log in ns2.ns3 with userId context" 
-        katipAddContext (sl "country" $ asText "Singapore") $
-          $(logTM) InfoS "Log in ns2.ns3 with userId and country context"
-
-
 instance AuthRepo App where
-  addAuth             = PG.addAuth
-  setEmailAsVerified  = PG.setEmailAsVerified
-  findUserByAuth      = PG.findUserByAuth
+  addAuth = PG.addAuth
+  setEmailAsVerified = PG.setEmailAsVerified
+  findUserByAuth = PG.findUserByAuth
   findEmailFromUserId = PG.findEmailFromUserId
 
 instance EmailVerificationNotif App where
-  notifyEmailVerification = M.notifyEmailVerification
+  notifyEmailVerification = MQAuth.notifyEmailVerification
 
 instance SessionRepo App where
-  newSession            = Redis.newSession
+  newSession = Redis.newSession
   findUserIdBySessionId = Redis.findUserIdBySessionId
-
-someFunc :: IO ()
-someFunc = withKatip $ \le -> do
-  mState <- newTVarIO M.initialState
-  PG.withState pgCfg $ \pgState ->
-      Redis.withState redisCfg $ \ redisState ->
-      run le (pgState, redisState, mState) action
+  
+withKatip :: (LogEnv -> IO a) -> IO a
+withKatip app =
+  bracket createLogEnv closeScribes app
   where
+    createLogEnv = do
+      logEnv <- initLogEnv "HAuth" "prod"
+      stdoutScribe <- mkHandleScribe ColorIfTerminal stdout InfoS V2
+      registerScribe "stdout" stdoutScribe defaultScribeSettings logEnv
+
+withState :: (LogEnv -> State -> IO ()) -> IO ()
+withState action = 
+  withKatip $ \le -> do
+    mState <- newTVarIO M.initialState
+    PG.withState pgCfg $ \pgState ->
+      Redis.withState redisCfg $ \redisState ->
+        MQ.withState mqCfg 16 $ \mqState -> do
+          let state = (pgState, redisState, mqState, mState)
+          action le state
+  where
+    mqCfg = "amqp://guest:guest@localhost:5672/%2F"
     redisCfg = "redis://localhost:6379/0"
-    pgCfg = PG.Config 
-            { PG.configUrl = "postgresql://postgres:postgres@localhost/hauth"
-            , PG.configStripeCount = 2
-            , PG.configMaxOpenConnPerStripe = 5
-            , PG.configIdleConnTimeout = 10
-            }
+    pgCfg = 
+      PG.Config 
+      { PG.configUrl = "postgresql://localhost/hauth"
+      , PG.configStripeCount = 2
+      , PG.configMaxOpenConnPerStripe = 5
+      , PG.configIdleConnTimeout = 10
+      }
+
+main :: IO ()
+main = 
+  withState $ \le state@(_, _, mqState, _) -> do
+    let runner = run le state
+    MQAuth.init mqState runner
+    runner action
 
 action :: App ()
 action = do
-  let email = either undefined id $ mkEmail "ecky@test.com"
+  randEmail <- liftIO $ stringRandomIO "[a-z0-9]{5}@test\\.com"
+  let email = either undefined id $ mkEmail randEmail
       passw = either undefined id $ mkPassword "1234ABCDefgh"
-      auth  = Auth email passw
+      auth = Auth email passw
   register auth
-  Just vCode <- M.getNotificationsForEmail email
+  vCode <- pollNotif email
   verifyEmail vCode
-  Right session         <- login auth
-  Just  uId             <- resolveSessionId session
-  Just  registeredEmail <- getUser uId
+  Right session <- login auth
+  Just uId <- resolveSessionId session
+  Just registeredEmail <- getUser uId
   print (session, uId, registeredEmail)
+  where
+    pollNotif email = do
+      result <- M.getNotificationsForEmail email
+      case result of
+        Nothing -> pollNotif email
+        Just vCode -> return vCode
