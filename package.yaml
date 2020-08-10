@@ -36,6 +36,14 @@ dependencies:
 - safe-exceptions
 - hedis
 - amqp
+- scotty
+- http-types
+- cookie
+- wai
+- wai-extra
+- blaze-builder
+- digestive-functors
+- digestive-functors-aeson
 
 default-extensions:
 - NoImplicitPrelude
